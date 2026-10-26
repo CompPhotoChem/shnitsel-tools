@@ -4,6 +4,15 @@ Shnitsel tools is a project under active development.
 to keep track of the updates happening in various version, we list the 
 changes here
 
+## shnitsel-tools v2026.10.1
+
+Bug fixes compared to previous version:
+
+### Fixes
+
+- Order of the flattening of a trajectory tree was random. Now, trajectories are sorted first and then flattened, making the result deterministic.
+
+
 ## shnitsel-tools v2026.7.1
 
 Bug fixes compared to previous version:

@@ -36,11 +36,16 @@ def concat_subtree(
         The resulting multi-trajectory dataset
     """
     if not only_direct_children:
-        trajectories = list(subtree.collect_data())
+        trajectories = [
+            v
+            for _k, v in sorted(
+                subtree.collect_data(with_path=True), key=lambda x: x[0]
+            )
+        ]
     else:
         trajectories = [
             x.data
-            for x in subtree.children.values()
+            for _k, x in sorted(subtree.children.items(), key=lambda x: str(x[0]))
             if x.is_leaf and x.has_data and x.data is not None
         ]
 
@@ -68,11 +73,19 @@ def layer_subtree(
         The resulting multi-trajectory dataset
     """
     if not only_direct_children:
-        trajectories = list(subtree.collect_data())
+        trajectories = [
+            v
+            for _k, v in sorted(
+                subtree.collect_data(with_path=True), key=lambda x: x[0]
+            )
+        ]
     else:
         trajectories = [
-            x.data for x in subtree.children.values() if x.is_leaf and x.has_data
+            x.data
+            for _k, x in sorted(subtree.children.items(), key=lambda x: str(x[0]))
+            if x.is_leaf and x.has_data and x.data is not None
         ]
+
     return layer_trajs(trajectories)
 
 
@@ -94,9 +107,18 @@ def list_subtree(
         The resulting data/trajectory list
     """
     if not only_direct_children:
-        data = list(subtree.collect_data())
+        data = [
+            v
+            for _k, v in sorted(
+                subtree.collect_data(with_path=True), key=lambda x: x[0]
+            )
+        ]
     else:
-        data = [x.data for x in subtree.children.values() if x.is_leaf and x.has_data]
+        data = [
+            x.data
+            for _k, x in sorted(subtree.children.items(), key=lambda x: str(x[0]))
+            if x.is_leaf and x.has_data and x.data is not None
+        ]
     return data
 
 
