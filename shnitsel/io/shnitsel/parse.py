@@ -210,7 +210,20 @@ def _parse_shnitsel_file_v1_0(
                 remapped_v = [
                     rename_map.get(level_name, level_name) for level_name in v
                 ]
-                if (
+
+                #
+                all_found = True
+                for level in remapped_v:
+                    if level not in frames.coords:
+                        if level not in frames.data_vars:
+                            logging.warning(
+                                f"Level {level} of Multi-Index is missing on the dataset. Multi-Index {index_name} cannot be reconstructed. Proceeding without it."
+                            )
+                            all_found = False
+                        else:
+                            frames = frames.set_coords(level)
+
+                if all_found and (
                     len(
                         set(
                             [
