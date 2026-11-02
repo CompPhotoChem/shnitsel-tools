@@ -351,7 +351,20 @@ def _decode_shnitsel_v1_1_dataset(dataset: xr.Dataset) -> xr.Dataset:
             if k.startswith(level_prefix):
                 index_name = k[len(level_prefix) :]
                 # print(f"Index {index_name=} : levels={v}")
-                if len(set([dataset.coords[level_name].size for level_name in v])) == 1:
+                all_found = True
+                for level in v:
+                    if level not in dataset.coords:
+                        if level not in dataset.data_vars:
+                            logging.warning(
+                                f"Level {level} of Multi-Index is missing on the dataset. Multi-Index {index_name} cannot be reconstructed. Proceeding without it."
+                            )
+                            all_found = False
+                        else:
+                            dataset = dataset.set_coords(level)
+
+                if all_found and (
+                    len(set([dataset.coords[level_name].size for level_name in v])) == 1
+                ):
                     # all levels have the same length:
                     dataset = dataset.set_xindex(v)
                     mark_variable_assigned(dataset[index_name])
