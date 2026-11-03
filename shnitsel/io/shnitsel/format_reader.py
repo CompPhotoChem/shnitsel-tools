@@ -41,9 +41,17 @@ _shnitsel_default_pattern_glob = "*.nc"
 
 DataType = TypeVar("DataType")
 
+PREFERRED_XARRAY_ENGINE = None
+
 
 class ShnitselFormatReader(FormatReader):
     """Class for providing the Shnitsel format reading functionality in the standardized `FormatReader` interface"""
+
+    @staticmethod
+    def set_default_xarray_engine(engine: str | None):
+        global PREFERRED_XARRAY_ENGINE
+        
+        PREFERRED_XARRAY_ENGINE = engine
 
     def find_candidates_in_directory(
         self, path: PathOptionsType
@@ -181,7 +189,9 @@ class ShnitselFormatReader(FormatReader):
         try:
             # TODO: FIXME: Something is funky with type checks here.
             loaded_dataset_or_tree = read_shnitsel_file(
-                path, loading_parameters=loading_parameters
+                path,
+                loading_parameters=loading_parameters,
+                input_engine=PREFERRED_XARRAY_ENGINE,
             )
 
             if isinstance(loaded_dataset_or_tree, xr.Dataset):
