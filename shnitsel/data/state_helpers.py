@@ -270,6 +270,8 @@ def set_sharc_state_type_and_name_defaults(
     mark_variable_assigned(dataset.state_magnetic_number)
     mark_variable_assigned(dataset.state_degeneracy_group)
 
+    dataset = dataset.set_coords(["state_types", "state_names", "state_charges", "state_magnetic_number", "state_degeneracy_group"])
+
     return dataset
 
 

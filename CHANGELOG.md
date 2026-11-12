@@ -11,6 +11,7 @@ Bug fixes compared to previous version:
 ### Fixes
 
 - Fix smiles map not found if set on attributes of trajectory instead of individual data arrays
+- Fix import process not setting all coordinates associated with states correctly when importing SHARC formats
 
 ## shnitsel-tools v2026.10.1
 
