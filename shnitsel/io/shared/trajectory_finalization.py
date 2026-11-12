@@ -320,4 +320,39 @@ def normalize_dataset(ds: xr.Dataset | ShnitselDataset) -> xr.Dataset:
             revised_umatrix = old_umatrix.rename(state2='state_diag')
             ds = ds.drop_vars('u_matrix').assign(u_matrix=revised_umatrix)
 
+    expected_coords = [
+        "atNames",
+        "atNums",
+        "state",
+        "state_names",
+        "state_charges",
+        "state_types",
+        "state_degeneracy_group",
+        "atom",
+        "trajectory",
+        "frame",
+        "astate_diag",
+        "max_ts",
+        "astate",
+        "atrajectory",
+        "time",
+        "direction",
+        "from",
+        "to",
+        "state_diag",
+        "full_statecomb_from",
+        "full_statecomb_to",
+        "delta_t",
+        "charge",
+        "t_max",
+    ]
+    for exp_coord in expected_coords:
+        if exp_coord in ds.data_vars and not exp_coord in ds.coords:
+            try:
+                ds = ds.set_coords(exp_coord)
+            except:
+                logging.warning(
+                    f"Variable {exp_coord} which is usually expected as a coordinate could not be promoted to a coordinate"
+                )
+
     return ds
