@@ -4,6 +4,14 @@ Shnitsel tools is a project under active development.
 to keep track of the updates happening in various version, we list the 
 changes here
 
+## shnitsel-tools v2026.11.1
+
+Bug fixes compared to previous version:
+
+### Fixes
+
+- Fix smiles map not found if set on attributes of trajectory instead of individual data arrays
+
 ## shnitsel-tools v2026.10.1
 
 Bug fixes compared to previous version:

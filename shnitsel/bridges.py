@@ -359,14 +359,15 @@ def construct_default_mol(
         if not silent_mode:
             logging.debug("default_mol: Using `obj.attrs['smiles_map']`")
         mol = numbered_smiles_to_mol(obj.attrs['smiles_map'])
+        return sap(mol)
     elif 'smiles_map' in atXYZ.attrs:
         return sap(numbered_smiles_to_mol(atXYZ.attrs['smiles_map']))
-    
+
     # Figure out if there are remaining dimensions that we have not yet singled out
     atXYZ_dims = set(atXYZ.dims)
     excess_dims = atXYZ_dims.difference({'atom', 'direction'})
 
-    if len(excess_dims) >0:
+    if len(excess_dims) > 0:
         if not silent_mode:
             logging.info("Picking first frame for molecule construction")
         # Just pick the first entry:
