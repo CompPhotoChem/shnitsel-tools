@@ -537,6 +537,228 @@ def read_traj(
     return trajectory
 
 
+def parse_output_dat_nc(path: os.PathLike) -> xr.Dataset:
+    """Function to parse settings from the `output.dat` file as far as they are available.
+
+    Read settings and other info from the file.
+
+    Parameters
+    ----------
+    path : os.PathLike
+        File path pointing to a `output.dat.nc` file written by SHARC
+
+    Returns
+    -------
+    xr.Dataset
+        The dataset constructed from the SHARC netcad output but converted to shnitsel-conventions
+    """
+
+    # From SHARC code:
+    # const double* H_MCH_ss,           // complex, (frame, 2*nstates, nstates)
+    # const double* U_ss,               // complex, (frame, 2*nstates, nstates)
+    # const double* DM_print_ssd,       // complex, (frame, 2*nstates, nstates, 3)
+    # const double* overlaps_ss,        // complex, (frame, 2*nstates, nstates)
+    # const double* coeff_diag_s,       // complex, (frame, 2*nstates)
+    # const double* E,                  // real, contains Etot, Epot and Ekin, (frame, 3)
+    # const double* hopprob_s,          // real, (frame, nstates)
+    # const double* geom_ad,            // real, (frame, natoms, 3)
+    # const double* veloc_ad,           // real, (frame, natoms, 3)
+    # // One dimensional opjects
+    # const double* randnum,            // real, (frame, 1)
+    # const int* state_diag,            // int, (frame, 1)
+    # const int* state_MCH,             // int, (frame, 1)
+    # const int* time_step,             // int, (frame, 1)
+
+    sharc_ds = xr.open_dataset(path, engine="h5netcdf")
+    target_ds = {}
+    template = {
+        "energy": ["time", "state"],
+        "e_kin": ["time"],
+        "velocities": ["time", "atom", "direction"],
+        "forces": ["time", "state", "atom", "direction"],
+        "atXYZ": ["time", "atom", "direction"],
+        "nacs": ["time", "statecomb", "atom", "direction"],
+        # "dip_all": ["time", "state", "state2", "direction"],
+        "dip_perm": ["time", "state", "direction"],
+        "dip_trans": ["time", "statecomb", "direction"],
+        # SOCs need to be a state x state (without repetition) matrix as it is not necessarily hermitean
+        # "socs": ["time", "statecomb"],
+        "socs": ["time", "full_statecomb"],
+        "state_names": ["state"],
+        "state_types": ["state"],
+        "state_magnetic_number": ["state"],
+        "state_degeneracy_group": ["state"],
+        "state_charges": ["state", "tmp"],
+        "astate": ["time", "tmp"],
+        # Note: Previously called "sdiag"
+        "astate_diag": ["time"],
+        "atNames": ["atom"],
+        "atNums": ["atom"],
+        # This is in terms of MCH states
+        "phases": ["time", "state"],
+        "random_number": ["time", "tmp"],
+        "state_coefs_diag": ["time", "state_diag"],
+        "prob_hop_diag": ["time", "state_diag"],
+        "u_matrix": ["time", "state", "state_diag"],
+        "overlap_matrix": ["time", "state", "state_diag"],
+    }
+
+    nstates = sharc_ds.sizes["nstate"]
+    nframes = sharc_ds.sizes["frame"]
+
+    cnstates = sharc_ds.sizes["cnstate"]
+    assert nstates * 2 == cnstates, (
+        f"NetCDF sharc output has unknown dimensionality format. Expected cnstates==2*nstates for complex data, but found {cnstates=} and {nstates=} instead"
+    )
+
+    target_coords = []
+
+    idx_table_nacs = {
+        (si, sj): idx
+        for idx, (si, sj) in enumerate(combinations(range(1, nstates + 1), 2))
+    }
+
+    if "geom" in sharc_ds:
+        target_ds["atXYZ"] = xr.DataArray(sharc_ds["geom"].data, dims=template["atXYZ"])
+
+    if "hopprob" in sharc_ds:
+        target_ds["prob_hop_diag"] = xr.DataArray(
+            sharc_ds["hopprob"].data, dims=template["prob_hop_diag"]
+        )
+
+    if "veloc" in sharc_ds:
+        target_ds["velocities"] = xr.DataArray(
+            sharc_ds["veloc"].data, dims=template["velocities"]
+        )
+
+    if "randnum" in sharc_ds:
+        target_ds["random_number"] = xr.DataArray(
+            sharc_ds["randnum"].data, dims=template["random_number"]
+        ).squeeze("tmp")
+
+    if "state_diag" in sharc_ds:
+        target_ds["astate_diag"] = xr.DataArray(
+            sharc_ds["state_diag"].data, dims=template["astate_diag"]
+        ).squeeze("tmp")
+        target_coords.append("astate_diag")
+
+    if "state_MCH" in sharc_ds:
+        target_ds["astate"] = xr.DataArray(
+            sharc_ds["state_MCH"].data, dims=template["astate"]
+        ).squeeze("tmp")
+        target_coords.append("astate")
+
+    if "time_step" in sharc_ds:
+        target_ds["time_step"] = xr.DataArray(
+            sharc_ds["time_step"].squeeze("1").data, dims=template["astate"]
+        )
+
+    if "Energy" in sharc_ds:
+        tmp_e = sharc_ds["Energy"].data
+        tmp_e_tot = tmp_e[:, 0]
+        tmp_e_pot = tmp_e[:, 1]  # only the active potential energy, not per-state
+        tmp_e_kin = tmp_e[:, 2]
+        target_ds["e_kin"] = xr.DataArray(tmp_e_kin, dims=template["e_kin"])
+
+    if "H_MCH" in sharc_ds:
+        full_hamiltonian = sharc_ds["H_MCH"].data  # (frame, cnstates, nstates)
+
+        real_part = full_hamiltonian[:, 0::2]
+        imag_part = full_hamiltonian[:, 1::2]
+
+        per_state_energy = np.zeros((nframes, nstates))
+
+        list_pairs = list(permutations(range(0, nstates), 2))
+        num_pairs = len(list_pairs)
+        socs = np.zeros((nframes, num_pairs), dtype=complex)
+
+        for istate in range(nstates):
+            per_state_energy[:, istate] = real_part[:, istate, istate]
+        for idx, (astate, bstate) in enumerate(list_pairs):
+            socs[:, idx] = (
+                real_part[:, astate, bstate] + 1j * imag_part[:, astate, bstate]
+            )
+
+        target_ds["socs"] = xr.DataArray(socs, dims=template["socs"])
+        target_ds["energy"] = xr.DataArray(per_state_energy, dims=template["energy"])
+
+    if "U" in sharc_ds:
+        full_U = sharc_ds["U"].data  # (frame, cnstates, nstates)
+
+        real_part = full_U[:, 0::2]
+        imag_part = full_U[:, 1::2]
+
+        full_U = real_part + 1j * imag_part
+        target_ds["u_matrix"] = xr.DataArray(full_U, dims=template["u_matrix"])
+
+    if "Ovlap" in sharc_ds:
+        logging.warning("Overlap matrix import not yet supported")
+        # full_Ov = sharc_ds["Ovlap"].data # (frame, cnstates, nstates)
+
+        # real_part =  Ovlap[:,0::2]
+        # imag_part =  Ovlap[:,1::2]
+        # full_Ov = real_part + 1j*imag_part
+    if "coeff_diag" in sharc_ds:
+        full_data = sharc_ds["coeff_diag"].data  # (frame, cnstates)
+
+        real_part = full_data[:, 0::2]
+        imag_part = full_data[:, 1::2]
+        full_value = real_part + 1j * imag_part
+        target_ds["state_coefs_diag"] = xr.DataArray(
+            full_value, dims=template["state_coefs_diag"]
+        )
+
+    if "DM" in sharc_ds:
+        # Dipole moment?
+        full_data = sharc_ds["DM"].data  # (frame, cnstates, nstates, 3)
+
+        real_part = full_data[:, 0::2]
+        imag_part = full_data[:, 1::2]
+
+        list_pairs = list(combinations(range(0, nstates), 2))
+
+        dip_perm = np.zeros((nframes, nstates, 3))
+        num_pairs = len(list_pairs)
+
+        dip_trans = np.zeros((nframes, num_pairs, 3), dtype=complex)
+
+        for istate in range(nstates):
+            dip_perm[:, istate] = real_part[:, istate, istate]
+
+        for idx, (astate, bstate) in enumerate(list_pairs):
+            dip_trans[:, idx] = (
+                real_part[:, astate, bstate] + 1j * imag_part[:, astate, bstate]
+            )
+        target_ds["dip_perm"] = xr.DataArray(dip_perm, dims=template["dip_perm"])
+        target_ds["dip_trans"] = xr.DataArray(dip_trans, dims=template["dip_trans"])
+
+    if "MDM" in sharc_ds:
+        # Magnetic Dipole moment? Currently unused
+        # full_data = sharc_ds["MDM"].data # (frame, cnstates, nstates, 3)
+
+        # real_part =  full_data[:,0::2]
+        # imag_part =  full_data[:,1::2]
+        # full_value = real_part + 1j*imag_part
+        # target_ds["state_coefs_diag"] = xr.DataArray(full_value, dims=template["state_coefs_diag"])
+        pass
+
+    if "EQM" in sharc_ds:
+        # NACS? transition dipoles?
+        # full_data = sharc_ds["EQM"].data # (frame, cnstates, nstates, 3, 3)
+
+        # real_part =  full_data[:,0::2]
+        # imag_part =  full_data[:,1::2]
+        # full_value = real_part + 1j*imag_part
+        # target_ds["state_coefs_diag"] = xr.DataArray(full_value, dims=template["state_coefs_diag"])
+        pass
+
+    final_ds = xr.Dataset(target_ds)
+
+    if target_coords:
+        final_ds = final_ds.set_coords(target_coords)
+    return final_ds
+
+
 def parse_output_settings(f: TextIOWrapper) -> dict[str, Any]:
     """Function to parse settings from the `output.dat` file as far as they are available.
 
